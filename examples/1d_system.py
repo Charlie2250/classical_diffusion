@@ -34,7 +34,7 @@ def _plot_periodic_system() -> None:
     fig.savefig("examples/1d_system.potential.pdf")
 
 
-def _plot_1d_periodic_isf() -> None:  # ruff:ignore[too-many-locals]
+def _plot_1d_periodic_isf() -> None:
     key = jrandom.PRNGKey(100)
 
     system = PeriodicSystem1D(
@@ -47,7 +47,6 @@ def _plot_1d_periodic_isf() -> None:  # ruff:ignore[too-many-locals]
             t0=0,
             t1=40 / system.gamma,
             dt=0.01 / system.gamma,
-            dt_step=0.01 / system.gamma,
         ),
         (np.full((20, 1), 0.0), np.full((20, 1), 0.0)),
         _key=key,
@@ -69,28 +68,23 @@ def _plot_1d_periodic_isf() -> None:  # ruff:ignore[too-many-locals]
             t0=0,
             t1=10 / system.gamma,
             dt=0.01 / system.gamma,
-            dt_step=0.01 / system.gamma,
         ),
-        n_trajectories=2000,
+        n_samples=10000,
         _key=key,
     )
 
-    _, ax, line_1, _fill_1 = plot_isf(
-        result=result, ax=ax, delta_k=delta_k, pairwise=False
-    )
+    _, ax, line_1, _ = plot_isf(result=result, ax=ax, delta_k=delta_k, pairwise=False)
     line_1.set_label("ballistic simulation")
 
-    elastic_result, inelastic_result = breakdown_ballistic_trajectory(
-        result, stride_time=1 / system.gamma
-    )
+    elastic_result, inelastic_result = breakdown_ballistic_trajectory(result)
 
-    _, ax, line_2, _fill_2 = plot_isf(
+    _, ax, line_2, _ = plot_isf(
         result=elastic_result, ax=ax, delta_k=delta_k, pairwise=False
     )
     line_2.set_label("elastic")
     line_2.set_linestyle(":")
 
-    _, ax, line_3, _fill_3 = plot_isf(
+    _, ax, line_3, _ = plot_isf(
         result=inelastic_result, ax=ax, delta_k=delta_k, pairwise=False
     )
     line_3.set_label("inelastic")
@@ -101,6 +95,27 @@ def _plot_1d_periodic_isf() -> None:  # ruff:ignore[too-many-locals]
     ax.legend(handles=[line_0, line_1, line_2, line_3])
     fig.savefig("./examples/1d_system.isf.pdf", dpi=300, bbox_inches="tight")
 
+
+def _plot_1d_inelastic_trends() -> None:
+
+    system = PeriodicSystem1D(
+        gamma=0.1, temperature=0.5, m=1.0, delta_x=5, barrier_energy=0.5
+    )
+
+    key = jrandom.PRNGKey(100)
+
+    result = solve_ballistic_ensemble(
+        system,
+        TimeSpan(
+            t0=0,
+            t1=10 / system.gamma,
+            dt=0.01 / system.gamma,
+        ),
+        n_samples=10000,
+        _key=key,
+    )
+
+    _elastic_result, inelastic_result = breakdown_ballistic_trajectory(result)
     delta_k_values = np.linspace(0.1, 2.0, 9) * (0.5 * 2 * np.pi / system.delta_x)
 
     fig, ax = get_fancy_figure()
@@ -109,7 +124,7 @@ def _plot_1d_periodic_isf() -> None:  # ruff:ignore[too-many-locals]
     )
     ax.set_xlim(0, 4 / system.gamma)
     fig.savefig(
-        "./examples/1d_system.isf.ballistic.inelastic.delta_k.pdf",
+        "./examples/1d_system.inelastic_trends.pdf",
         dpi=300,
         bbox_inches="tight",
     )
@@ -136,15 +151,12 @@ def _plot_effective_mass_isf() -> None:
             t0=0,
             t1=100 / system.gamma,
             dt=0.01 / system.gamma,
-            dt_step=0.01 / system.gamma,
         ),
-        n_trajectories=2000,
+        n_samples=2000,
         _key=key,
     )
 
-    elastic_result, _ = breakdown_ballistic_trajectory(
-        result, stride_time=1 / system.gamma
-    )
+    elastic_result, _ = breakdown_ballistic_trajectory(result)
 
     _, ax, line_0, _ = plot_isf(
         result=elastic_result, ax=ax, delta_k=delta_k, pairwise=False
@@ -168,9 +180,7 @@ def _plot_effective_mass_isf() -> None:
     ax.set_xlim(0, 0.3 / system.gamma)
     ax.set_ylim(0, 1)
     ax.legend(handles=[line_0, line_1, line_2])
-    fig.savefig(
-        "./examples/1d_system.isf.effective.mass.pdf", dpi=300, bbox_inches="tight"
-    )
+    fig.savefig("./examples/1d_system.effective_mass.pdf", dpi=300, bbox_inches="tight")
 
 
 def _plot_effective_mass_offset_isf() -> None:
@@ -192,15 +202,12 @@ def _plot_effective_mass_offset_isf() -> None:
             t0=0,
             t1=100 / system.gamma,
             dt=0.01 / system.gamma,
-            dt_step=0.01 / system.gamma,
         ),
-        n_trajectories=2000,
+        n_samples=2000,
         _key=key,
     )
 
-    elastic_result, _ = breakdown_ballistic_trajectory(
-        result, stride_time=1 / system.gamma
-    )
+    elastic_result, _ = breakdown_ballistic_trajectory(result)
 
     delta_k = (0.5 * 2 * np.pi / system.delta_x,)
 
@@ -237,7 +244,7 @@ def _plot_effective_mass_offset_isf() -> None:
     ax.set_ylim(0, 1)
     ax.legend(handles=[line_0, line_1, line_2])
     fig.savefig(
-        "./examples/1d_system.isf.effective.mass.offset.pdf",
+        "./examples/1d_system.effective_mass_offset.pdf",
         dpi=300,
         bbox_inches="tight",
     )
@@ -246,5 +253,6 @@ def _plot_effective_mass_offset_isf() -> None:
 if __name__ == "__main__":
     _plot_periodic_system()
     _plot_1d_periodic_isf()
+    _plot_1d_inelastic_trends()
     _plot_effective_mass_isf()
     _plot_effective_mass_offset_isf()

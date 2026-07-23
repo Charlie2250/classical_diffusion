@@ -1,6 +1,8 @@
 import datetime
 import pickle  # ruff:ignore[suspicious-pickle-import]
 import types
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import update_wrapper, wraps
 from types import FunctionType
 from typing import TYPE_CHECKING, Literal, TypeVar, overload
@@ -10,6 +12,19 @@ import numpy as np
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
     from pathlib import Path
+
+
+_timing_disabled = ContextVar("timing_disabled", default=False)
+
+
+@contextmanager
+def disabled_timing() -> Generator[None]:
+    """Context manager to temporarily disable nested @timed logs."""
+    token = _timing_disabled.set(True)
+    try:
+        yield
+    finally:
+        _timing_disabled.reset(token)
 
 
 def timed[**P, R](f: Callable[P, R]) -> Callable[P, R]:
@@ -30,6 +45,10 @@ def timed[**P, R](f: Callable[P, R]) -> Callable[P, R]:
 
     @wraps(f)
     def wrap(*args: P.args, **kw: P.kwargs) -> R:
+
+        if _timing_disabled.get():
+            return f(*args, **kw)
+
         ts = datetime.datetime.now(tz=datetime.UTC)
         try:
             result = f(*args, **kw)
@@ -199,15 +218,3 @@ def cached[**P, R](
         )
 
     return _cached
-
-
-def expanding_slope_ensemble(t: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Return the gradient of best fit as more data points are added with time."""
-    n = np.arange(1, len(t) + 1)
-    st = np.cumsum(t)
-    stt = np.cumsum(t * t)
-    sy = np.cumsum(y, axis=-1)
-    sty = np.cumsum(y * t[None, :], axis=-1)
-
-    denom = n * stt - st**2
-    return (n * sty - st * sy) / denom

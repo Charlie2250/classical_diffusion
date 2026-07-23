@@ -3,7 +3,6 @@
 from ._langevin import (  # ruff:ignore[unsorted-imports]
     SimulationResult,
     TimeSpan,
-    sample_results,
     solve_ensemble,
     solve_single,
     solve_ballistic_ensemble,
@@ -18,10 +17,10 @@ from ._analysis import (
     plot_x_histogram,
     plot_2d_trajectory,
     plot_kinetic_probability,
-    plot_isf_with_delta_k,
-    split_escaped_and_trapped,
     get_under_barrier_probability_ballistic,
     breakdown_ballistic_trajectory,
+    split_escaped_and_trapped,
+    plot_isf_with_delta_k,
     get_effective_mass,
     plot_effective_mass_periodic_1D,
 )
@@ -42,7 +41,6 @@ __all__ = [
     "plot_phase_space_density",
     "plot_x_evolution",
     "plot_x_histogram",
-    "sample_results",
     "solve_ballistic_ensemble",
     "solve_ensemble",
     "solve_single",
