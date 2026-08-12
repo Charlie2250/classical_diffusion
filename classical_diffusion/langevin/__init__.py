@@ -22,7 +22,7 @@ from ._system_analysis import (  # ruff:ignore[unsorted-imports]
     plot_exact_flat_isf,
     plot_exact_harmonic_isf,
     plot_periodic_potential_fcc,
-    calculate_probability_under_barrier_ndim,
+    calculate_intra_cell_factor,
 )
 
 from ._langevin import (
@@ -58,6 +58,7 @@ __all__ = [
     "add_periodic_grid",
     "breakdown_ballistic_trajectory",
     "breakdown_filtered_ballistic_trajectory_butterworth",
+    "calculate_intra_cell_factor",
     "calculate_probability_under_barrier_1d",
     "calculate_probability_under_barrier_ndim",
     "get_effective_mass",

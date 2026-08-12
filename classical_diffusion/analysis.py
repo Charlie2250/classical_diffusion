@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, Unpack
 import matplotlib as mpl
 import numpy as np
 import scipy
+import sympy as sp
+from scipy import integrate
 
 from classical_diffusion.plot import get_figure, get_measured_data
 
@@ -15,6 +17,7 @@ if TYPE_CHECKING:
     from classical_diffusion.langevin._langevin import LangevinSimulationResult
     from classical_diffusion.plot import Measure
     from classical_diffusion.simulation import SimulationResult
+    from classical_diffusion.system import System
 
 
 def _calculate_total_offsset_multiplications_complex(
@@ -212,3 +215,38 @@ def plot_p_evolution(
     ax.set_ylabel("$p$")
 
     return fig, ax, lines
+
+
+def calculate_intra_cell_factor(system: System, delta_k: np.ndarray) -> None:
+    """Calcaulates the inra_cell factor to correct for path length changes in unit cell."""
+    rotation_matrix = np.asarray(system.lattice_vectors)
+    potential_func = sp.lambdify(system.lambda_symbols, system.potential_expr, "numpy")
+    params = system.params
+
+    def boltzmann(u: np.ndarray) -> float:
+        r = rotation_matrix @ u
+        v = potential_func(*r, *params)
+        return np.exp(-v / system.kbt)
+
+    def denominator_integrand(*u_components: np.ndarray) -> float:
+        u = np.array(u_components)
+        return boltzmann(u)
+
+    def numerator_integrand_real(*u_components: np.ndarray) -> float:
+        u = np.array(u_components)
+        r = rotation_matrix @ u
+        return boltzmann(u) * np.cos(delta_k @ r)
+
+    def numerator_integrand_imag(*u_components: np.ndarray) -> float:
+        u = np.array(u_components)
+        r = rotation_matrix @ u
+        return boltzmann(u) * np.sin(delta_k @ r)
+
+    ranges = system.sampling_domain
+
+    denom, _ = integrate.nquad(denominator_integrand, ranges)
+    num_re, _ = integrate.nquad(numerator_integrand_real, ranges)
+    num_im, _ = integrate.nquad(numerator_integrand_imag, ranges)
+
+    numerator = num_re + 1j * num_im
+    return abs(numerator / denom) ** 2

@@ -4,10 +4,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import sympy as sp
-from scipy import integrate, interpolate, ndimage
+from scipy import integrate
 from scipy.integrate import quad
 from scipy.optimize import brentq
-from scipy.special import ellipk, ellipkinc, gamma
+from scipy.special import ellipk, ellipkinc
 from scipy.stats.sampling import NumericalInversePolynomial
 
 from classical_diffusion.plot import get_figure
@@ -758,82 +758,8 @@ def add_periodic_grid(
     return fig, ax
 
 
-@timed
-def calculate_partition_function_ndim(system: System) -> float:
-    """Z = Z_p * Z_x, valid for any n_dim."""
-    lattice = np.asarray(system.lattice_vectors)
-    jac = abs(np.linalg.det(lattice))
-    potential_func = sp.lambdify(system.lambda_symbols, system.potential_expr, "numpy")
-    params = system.params
-    n = system.n_dim
-
-    def integrand(*frac_coords: float) -> float:
-        xc = lattice @ np.array(frac_coords)
-        return np.exp(-potential_func(*xc, *params) / system.kbt)
-
-    ranges = system.sampling_domain
-    z_x, _ = integrate.nquad(integrand, ranges)
-    z_x *= jac
-
-    z_p = (2 * np.pi * system.m * system.kbt) ** (n / 2)
-    return z_p * z_x
+def calcualte_period(system: System, start: float, end: float, direction: np.ndarray):
 
 
-@timed
-def build_basin_weight_function(
-    system: System, barrier_energy: float, n_grid: int = 60, n_energy: int = 40
-) -> tuple[Callable[[float], float], float]:
-    """W(E): Boltzmann-weighted volume of the connected basin V <= E, any n_dim."""
-    potential_fn = sp.lambdify(system.lambda_symbols, system.potential_expr, "numpy")
-    lattice = np.asarray(system.lattice_vectors)
-    jac = abs(np.linalg.det(lattice))
-    n = system.n_dim
-    cell_vol = jac / n_grid**n
-
-    bounds = system.sampling_domain
-
-    grids = jnp.meshgrid(
-        *[jnp.linspace(b[0], b[1], n_grid) for b in bounds], indexing="ij"
-    )
-    v_grid = potential_fn(*[g.ravel() for g in grids], *system.params)
-    v_grid = np.asarray(v_grid).reshape(grids[0].shape)
-
-    v_min = v_grid.min()
-    min_idx = np.unravel_index(np.argmin(v_grid), v_grid.shape)
-    boltz = np.exp(-v_grid / system.kbt)
-
-    energies = np.linspace(v_min, v_min + barrier_energy, n_energy)
-    weights = np.zeros(n_energy)
-    structure = np.ones((3,) * n)
-    for i, e in enumerate(energies):
-        mask = v_grid <= e
-        labeled, _ = ndimage.label(mask, structure=structure)
-        basin = labeled == labeled[min_idx]
-        weights[i] = boltz[basin].sum() * cell_vol
-
-    return interpolate.interp1d(
-        energies, weights, bounds_error=False, fill_value=(0.0, weights[-1])
-    ), v_min
 
 
-@timed
-def calculate_probability_under_barrier_ndim(
-    system: System, barrier_energy: float
-) -> float:
-    w_of_e, v_min = build_basin_weight_function(system, barrier_energy)
-    n, m = system.n_dim, system.m
-
-    # d^n p = S_{n-1} p^{n-1} dp,  S_{n-1} = 2 pi^{n/2} / Gamma(n/2)  (surface area of unit (n-1)-sphere)
-    surface_area = 2 * np.pi ** (n / 2) / gamma(n / 2)
-
-    def radial_integrand(p: float) -> float:
-        e_avail = barrier_energy - p**2 / (2 * m)
-        if e_avail < v_min:
-            return 0.0
-        ke_boltz = np.exp(-(p**2 / (2 * m)) / system.kbt)
-        return surface_area * p ** (n - 1) * ke_boltz * w_of_e(e_avail)
-
-    p_max = np.sqrt(2 * m * (barrier_energy - v_min))
-    numerator, _ = integrate.quad(radial_integrand, 0, p_max)
-
-    return numerator / calculate_partition_function_ndim(system)
