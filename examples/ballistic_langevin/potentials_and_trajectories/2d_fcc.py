@@ -3,7 +3,6 @@ import numpy as np
 
 from classical_diffusion.langevin import (
     breakdown_filtered_ballistic_trajectory_butterworth,
-    get_energy_single,
     plot_2d_trajectory_single,
     plot_periodic_potential_fcc,
     solve_single,
@@ -59,9 +58,6 @@ def _plot_ballistic_trajectory() -> None:
             normalized_system, 1 / normalized_system.gamma
         ),
     )
-
-    print(get_energy_single(normalized_system, result.x_points, result.p_points))
-    print(normalized_system.barrier_energy)
 
     fig, ax = _get_two_panel_figure()
 

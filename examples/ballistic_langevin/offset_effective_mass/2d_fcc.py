@@ -61,8 +61,6 @@ def _plot_effective_mass_offset_isf() -> None:
         normalized_system.barrier_energy,
     )
 
-    print(under_barrier_prob)
-
     elastic_result, _ = breakdown_filtered_ballistic_trajectory_butterworth(
         result_full,
         minimum_timescale=get_diffusion_time(

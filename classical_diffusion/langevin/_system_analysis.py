@@ -11,7 +11,6 @@ from scipy.special import ellipk, ellipkinc
 from scipy.stats.sampling import NumericalInversePolynomial
 
 from classical_diffusion.plot import get_figure
-from classical_diffusion.util import timed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -312,6 +311,7 @@ def plot_exact_gaussian_isf(
     times: np.ndarray[Any, np.dtype[np.floating[Any]]] | None = None,
     *,
     ax: Axes | None = None,
+    scale_factor: float = 1.0,
 ) -> tuple[Figure, Axes, Line2D]:
     """Plot the exact ISF for a 1D flat (potential-free) surface."""
     fig, ax = get_figure(ax)
@@ -321,7 +321,7 @@ def plot_exact_gaussian_isf(
         system=system, effective_mass=effective_mass, delta_k=delta_k, times=times
     )
 
-    (line,) = ax.plot(times, isf_exact)
+    (line,) = ax.plot(times, isf_exact * scale_factor)
 
     ax.set_title("Intermediate Scattering Function Over Time")
     ax.set_xlabel("Time / s")
@@ -758,8 +758,43 @@ def add_periodic_grid(
     return fig, ax
 
 
-def calcualte_period(system: System, start: float, end: float, direction: np.ndarray):
+def calculate_period_01_fcc(
+    system: PeriodicSystemFCC, x0: float, py0: float, height: float
+) -> float:
+    potential_func = sp.lambdify(system.lambda_symbols, system.potential_expr, "numpy")
+    params = system.params
+    m = system.m
+
+    def integrand(y: float) -> float:
+        v0 = potential_func(x0, 0, *params)
+        v = potential_func(x0, y, *params)
+        return m / np.sqrt(py0**2 + 2 * m * (v0 - v))
+
+    period, _ = integrate.quad(integrand, 0, height)
+    return period
 
 
+def calculate_elastic_momentum_01_fcc(
+    system: PeriodicSystemFCC, x0: float, py0: float, height: float
+):
+    if py0**2 / (2 * system.m) < system.barrier_energy:
+        return 0.0
+    period = calculate_period_01_fcc(system, x0, py0, height)
+    return system.m * height / period
 
 
+def calculate_effective_mass_01_fcc(
+    system: PeriodicSystemFCC, height: float, x0: float
+):
+    def boltzman(py0):
+        return np.exp(-(py0**2) / (2 * system.m * system.kbt))
+
+    def denom_integrand(py0: float):
+        return boltzman(py0) * calculate_elastic_momentum_01_fcc(
+            system, x0, py0, height
+        )
+
+    z, _ = integrate.quad(boltzman, -np.inf, np.inf)
+    denom_integral, _ = integrate.quad(denom_integrand, -np.inf, np.inf)
+
+    return system.kbt * system.m**2 * z / denom_integral

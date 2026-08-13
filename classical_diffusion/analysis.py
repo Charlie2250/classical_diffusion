@@ -217,8 +217,8 @@ def plot_p_evolution(
     return fig, ax, lines
 
 
-def calculate_intra_cell_factor(system: System, delta_k: np.ndarray) -> None:
-    """Calcaulates the inra_cell factor to correct for path length changes in unit cell."""
+def calculate_intra_cell_factor(system: System, delta_k: np.ndarray) -> float:
+    """Calculate the intra cell factor to correct for path length changes in unit cell."""
     rotation_matrix = np.asarray(system.lattice_vectors)
     potential_func = sp.lambdify(system.lambda_symbols, system.potential_expr, "numpy")
     params = system.params

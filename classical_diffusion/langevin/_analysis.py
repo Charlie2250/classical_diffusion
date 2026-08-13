@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import jax.numpy as jnp
 import numpy as np
+from matplotlib import animation
 from scipy.signal import butter, sosfiltfilt
 
 from classical_diffusion.langevin import (
@@ -10,8 +11,14 @@ from classical_diffusion.langevin import (
     SingleLangevinSimulationResult,
     get_energy,
 )
-from classical_diffusion.plot import get_figure
-from classical_diffusion.system import PeriodicSystem1D, System
+from classical_diffusion.plot import (
+    CAM_BLUE,
+    CAM_CHERRY,
+    CAM_PURPLE,
+    _get_three_panel_figure,
+    get_figure,
+)
+from classical_diffusion.system import PeriodicSystem1D, System, get_diffusion_time
 from classical_diffusion.util import timed
 
 if TYPE_CHECKING:
@@ -20,6 +27,7 @@ if TYPE_CHECKING:
     from matplotlib.container import BarContainer
     from matplotlib.figure import Figure
     from matplotlib.lines import Line2D
+
 
 import sympy as sp
 
@@ -722,12 +730,169 @@ def plot_effective_mass_ratio(
     """Plot the ratio of effective mass to inertial mass against barrier energy."""
     fig, ax = get_figure(ax)
 
-    (line,) = ax.plot(barrier_energy, mass_ratio[0])
-    line.set_label("Effective mass ratio")
+    (line,) = ax.plot(barrier_energy, mass_ratio)
 
     ax.set_title("Effective Mass Ratio vs Barrier Energy")
-    ax.set_xlabel("Barrier Energy")
+    ax.set_xlabel("Barrier Energy / kbt")
     ax.set_ylabel(r"$m_{\mathrm{eff}} / m$")
-    ax.legend()
 
     return fig, ax, line
+
+
+def animate_elastic_inelastic_breakdown_1d_periodic(
+    normalized_result: SingleLangevinSimulationResult,
+    normalized_system: PeriodicSystem1D,
+    *,
+    idx: int = 0,
+    start_time: float | None = None,
+    end_time: float | None = None,
+    n_frames: int = 300,
+    interval_ms: int = 30,
+    potential_n_grid: int = 400,
+) -> animation.FuncAnimation:
+    """Animate a single trajectory's breakdown into elastic and inelastic components.
+
+    Panel 1: particle (circle) moving along x, superimposed on V(x).
+    Panel 2: full trajectory and elastic component, x(t), built up over time.
+    Panel 3: inelastic component, x(t), built up over time. All three synced.
+
+    Parameters
+    ----------
+    start_time, end_time
+        Restrict the animation to the simulation window [start_time, end_time]
+        (in SI time units, matching `normalized_result.with_si_units().times`).
+        Defaults to the full simulation range if omitted.
+    """
+    elastic_result, inelastic_result = (
+        breakdown_filtered_ballistic_trajectory_butterworth(
+            normalized_result,
+            minimum_timescale=get_diffusion_time(
+                normalized_system, characteristic_length=normalized_system.delta_x / 0.5
+            ),
+        )
+    )
+
+    system_si = normalized_system.with_si_units()
+
+    times_full = normalized_result.with_si_units().times
+    start_time = times_full[0] if start_time is None else start_time
+    end_time = times_full[-1] if end_time is None else end_time
+
+    mask = (times_full >= start_time) & (times_full <= end_time)
+    if not np.any(mask):
+        msg = f"No simulation points found in range [{start_time}, {end_time}]"
+        raise ValueError(msg)
+
+    times = times_full[mask]
+    x_full = normalized_result.with_si_units().x_points[idx][mask]
+    x_elastic = elastic_result.with_si_units().x_points[idx][mask]
+    x_inelastic = inelastic_result.with_si_units().x_points[idx][mask]
+
+    # Subsample to n_frames so the animation doesn't try to draw every solver step
+    n_points = times.shape[0]
+    frame_indices = np.linspace(0, n_points - 1, n_frames).astype(int)
+
+    fig, axes = _get_three_panel_figure()
+    ax_particle, ax_trajectory, ax_inelastic = axes
+
+    # --- Panel 1: particle on potential ---
+    x_min, x_max = float(np.min(x_full)), float(np.max(x_full))
+    pad = 0.1 * (x_max - x_min if x_max > x_min else 1.0)
+
+    start = (x_min - pad,)
+    end = (x_max + pad,)
+    delta = np.array(end) - np.array(start)
+
+    t = np.linspace(0, 1, potential_n_grid)
+    points = np.array(start) + t[:, np.newaxis] * delta
+    potential_func = sp.lambdify(
+        system_si.lambda_symbols, system_si.potential_expr, "numpy"
+    )
+    v_grid = np.broadcast_to(
+        potential_func(*points.T, *system_si.params), (potential_n_grid,)
+    )
+    x_grid = points[:, 0]
+
+    _, ax_particle = get_figure(ax_particle)
+    ax_particle.plot(x_grid, v_grid, color=CAM_BLUE.dark, lw=1.5)
+    ax_particle.set_xlabel("$x$ (m)")
+    ax_particle.set_ylabel("$V(x)$ (J)")
+    ax_particle.set_title("Particle on potential")
+
+    # x-axis: how far the particle actually travels (SI units)
+    ax_particle.set_xlim(x_min - pad, x_max + pad)
+
+    # y-axis: magnitude of the potential the particle actually explores (SI units)
+    v_lo, v_hi = float(v_grid.min()), float(v_grid.max())
+    v_pad = 0.1 * (v_hi - v_lo if v_hi > v_lo else 1.0)
+    ax_particle.set_ylim(v_lo - v_pad, v_hi + v_pad)
+
+    # fixed height for the particle marker — it only moves along x, never up/down,
+    # so speed reads purely from horizontal motion (bunching near barriers, etc.)
+    particle_y = v_lo - 0.5 * v_pad
+
+    pos = ax_particle.get_position()
+    ax_width_points = pos.width * fig.get_size_inches()[0] * 72.0
+    marker_size = 0.03 * ax_width_points
+
+    (particle,) = ax_particle.plot(
+        [x_full[0]],
+        [particle_y],
+        marker="o",
+        markersize=marker_size,
+        color=CAM_CHERRY.dark,
+        markeredgecolor="black",
+        markeredgewidth=0.5,
+        zorder=5,
+        linestyle="",
+    )
+    # --- Panel 2: full + elastic trajectory vs time ---
+    ax_trajectory.set_xlim(times[0], times[-1])
+    y_lo = min(x_full.min(), x_elastic.min())
+    y_hi = max(x_full.max(), x_elastic.max())
+    pad_traj = 0.1 * (y_hi - y_lo if y_hi > y_lo else 1.0)
+    ax_trajectory.set_ylim(y_lo - pad_traj, y_hi + pad_traj)
+    ax_trajectory.set_xlabel("$t$")
+    ax_trajectory.set_ylabel("$x$")
+    ax_trajectory.set_title("Full vs elastic trajectory")
+
+    (line_full,) = ax_trajectory.plot([], [], color=CAM_PURPLE.dark, lw=1.0)
+    line_full.set_label("full")
+    (line_elastic,) = ax_trajectory.plot([], [], color=CAM_BLUE.dark, lw=1.5)
+    line_elastic.set_label("elastic")
+    ax_trajectory.legend(handles=[line_full, line_elastic], fontsize=8)
+
+    # --- Panel 3: inelastic component vs time ---
+    ax_inelastic.set_xlim(times[0], times[-1])
+    y_lo_i, y_hi_i = float(x_inelastic.min()), float(x_inelastic.max())
+    pad_i = 0.1 * (y_hi_i - y_lo_i if y_hi_i > y_lo_i else 1.0)
+    ax_inelastic.set_ylim(y_lo_i - pad_i, y_hi_i + pad_i)
+    ax_inelastic.set_xlabel("$t$")
+    ax_inelastic.set_ylabel(r"$x_{\mathrm{inelastic}}$")
+    ax_inelastic.set_title("Inelastic component")
+
+    (line_inelastic,) = ax_inelastic.plot([], [], color=CAM_CHERRY.dark, lw=1.5)
+
+    def _init() -> tuple:
+        particle.set_data([x_full[0]], [particle_y])
+        line_full.set_data([], [])
+        line_elastic.set_data([], [])
+        line_inelastic.set_data([], [])
+        return particle, line_full, line_elastic, line_inelastic
+
+    def _update(frame: int) -> tuple:
+        i = frame_indices[frame]
+        particle.set_data([x_full[i]], [particle_y])
+        line_full.set_data(times[: i + 1], x_full[: i + 1])
+        line_elastic.set_data(times[: i + 1], x_elastic[: i + 1])
+        line_inelastic.set_data(times[: i + 1], x_inelastic[: i + 1])
+        return particle, line_full, line_elastic, line_inelastic
+
+    return animation.FuncAnimation(
+        fig,
+        _update,
+        frames=n_frames,
+        init_func=_init,
+        interval=interval_ms,
+        blit=True,
+    )
